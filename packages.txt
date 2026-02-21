@@ -1,0 +1,2 @@
+libgdcm-dev
+libgl1
