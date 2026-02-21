@@ -1,5 +1,5 @@
+import gc
 import torch
-torch.set_num_threads(1) # Limits CPU usage to prevent crashes
 import torch.nn as nn
 import timm
 import cv2
@@ -7,12 +7,15 @@ import numpy as np
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
+# Limits CPU usage to prevent memory spikes on Streamlit Cloud
+torch.set_num_threads(1)
+
 class DiagnosisEngine:
     def __init__(self, model_path):
-        self.device = torch.device("cpu") # Streamlit Cloud uses CPU
+        self.device = torch.device("cpu")
         # 1. Initialize EfficientNet-B4
         self.model = timm.create_model('efficientnet_b4', pretrained=False, num_classes=1)
-        # 2. Load the weights we trained in Colab
+        # 2. Load the weights
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         self.model.eval()
         # 3. Target the last convolutional layer for Grad-CAM
@@ -30,12 +33,21 @@ class DiagnosisEngine:
         with torch.no_grad():
             prob = torch.sigmoid(self.model(tensor)).item()
         
-        # Using the Optimal Clinical Threshold we found (0.62)
+        # Optimal Clinical Threshold (0.62)
         diagnosis = "PNEUMOTHORAX DETECTED" if prob > 0.62 else "NORMAL / HEALTHY"
         
         # Grad-CAM Heatmap
-        cam = GradCAM(model=self.model, target_layers=self.target_layers)
-        grayscale_cam = cam(input_tensor=tensor)[0, :]
-        visualization = show_cam_on_image(img_512 / 255.0, grayscale_cam, use_rgb=True)
+        # We wrap this in a try-except to prevent the app from crashing if Grad-CAM fails
+        try:
+            cam = GradCAM(model=self.model, target_layers=self.target_layers)
+            grayscale_cam = cam(input_tensor=tensor)[0, :]
+            visualization = show_cam_on_image(img_512 / 255.0, grayscale_cam, use_rgb=True)
+        except Exception:
+            # Fallback if memory is too low for Grad-CAM
+            visualization = img_512
+
+        # --- MEMORY CLEANUP (CRITICAL FOR DEPLOYMENT) ---
+        del tensor
+        gc.collect() 
         
         return diagnosis, prob, visualization
