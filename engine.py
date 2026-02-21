@@ -1,4 +1,5 @@
 import torch
+torch.set_num_threads(1) # Limits CPU usage to prevent crashes
 import torch.nn as nn
 import timm
 import cv2
